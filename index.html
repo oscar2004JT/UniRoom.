@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UniRoom Pluzze</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>UniRoom</h1>
+    <p>Haz clic en una ficha para moverla y armar la imagen.</p>
+
+    <div class="game-area">
+      <div id="board" class="board" aria-label="Tablero de puzzle"></div>
+
+      <div class="panel">
+        <div class="controls">
+          <button id="shuffle">Barajar</button>
+          <button id="show" class="secondary">Mostrar imagen</button>
+          <button id="reset" class="secondary">Reiniciar</button>
+        </div>
+        <div class="info">
+          <div>Movimientos: <span id="moves">0</span></div>
+          <div>Tiempo: <span id="time">00:00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- overlay for full image -->
+    <div id="overlay" class="overlay hidden">
+      <img src="img/original.jpg" alt="Imagen completa">
+      <button id="closeOverlay" class="close">Cerrar</button>
+    </div>
+
+  </div>
+
+  <script src="js/script.js"></script>
+</body>
+</html>
