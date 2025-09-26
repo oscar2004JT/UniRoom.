@@ -1,4 +1,4 @@
-// script.js — versión corregida con render parcial y overlay oculto
+// script.js — versión sliding puzzle con espacio vacío
 const COLS = 6;
 const ROWS = 4;
 const N = COLS * ROWS;
@@ -38,18 +38,21 @@ function playTone(freq=880, dur=0.08, when=0) {
   o.stop(now + dur + 0.02);
 }
 
+// ---- Inicializar orden de puzzle ----
 function makeSolvedOrder() {
   solvedOrder = Array.from({length: N}, (_, i) => i + 1);
+  solvedOrder[N-1] = 0; // último es espacio vacío
   tileOrder = [...solvedOrder];
   prevCorrect.clear();
 }
 
+// ---- Manejar imágenes con fallback ----
 function setImgSrcWithFallback(imgEl, num) {
   const exts = ['jpg','png','webp','jpeg'];
   let idx = 0;
   imgEl.style.visibility = 'hidden';
   imgEl.onload = () => { imgEl.style.visibility = 'visible'; };
-  imgEl.onerror = null; // reset
+  imgEl.onerror = null;
   function tryNext() {
     if (idx >= exts.length) {
       imgEl.removeAttribute('src');
@@ -60,10 +63,10 @@ function setImgSrcWithFallback(imgEl, num) {
     imgEl.onerror = () => { idx++; tryNext(); };
     imgEl.src = src;
   }
-  tryNext();
+  if (num !== 0) tryNext(); // no cargar imagen si es vacío
 }
 
-// ---- Render parcial: crea tiles la primera vez, luego solo actualiza los que cambian ----
+// ---- Render parcial del tablero ----
 function renderBoard(initial = false) {
   if (boardEl.children.length !== N || initial) {
     boardEl.innerHTML = '';
@@ -74,49 +77,49 @@ function renderBoard(initial = false) {
       tile.dataset.pos = i;
       tile.dataset.tile = tileNum;
 
-      const img = document.createElement('img');
-      img.alt = `pieza ${tileNum}`;
-      setImgSrcWithFallback(img, tileNum);
-      tile.appendChild(img);
+      if (tileNum !== 0) {
+        const img = document.createElement('img');
+        img.alt = `pieza ${tileNum}`;
+        setImgSrcWithFallback(img, tileNum);
+        tile.appendChild(img);
+      } else {
+        tile.classList.add('empty');
+      }
 
       if (i === selectedIndex) tile.classList.add('selected');
-      if (tileNum === solvedOrder[i]) tile.classList.add('correct');
+      if (tileNum === solvedOrder[i] && tileNum !== 0) tile.classList.add('correct');
 
       tile.addEventListener('click', () => onTileClicked(i));
       boardEl.appendChild(tile);
     }
   } else {
-    // actualizar solo cambios (mejor performance, menos reflow)
     for (let i = 0; i < N; i++) {
       const tileNum = tileOrder[i];
       const tile = boardEl.children[i];
       if (!tile) continue;
-      // actualizar dataset y clases
+
       tile.dataset.tile = tileNum;
       if (i === selectedIndex) tile.classList.add('selected'); else tile.classList.remove('selected');
 
-      // actualizar si es correcta
-      if (tileNum === solvedOrder[i]) tile.classList.add('correct'); else tile.classList.remove('correct');
+      if (tileNum === solvedOrder[i] && tileNum !== 0) tile.classList.add('correct'); else tile.classList.remove('correct');
 
-      // actualizar imagen (si cambió)
       const img = tile.querySelector('img');
-      if (!img || String(img.alt) !== `pieza ${tileNum}`) {
-        // reemplazar imagen
+      if (tileNum !== 0 && (!img || img.alt !== `pieza ${tileNum}`)) {
         const newImg = document.createElement('img');
         newImg.alt = `pieza ${tileNum}`;
         setImgSrcWithFallback(newImg, tileNum);
-        // quitar antiguo y poner nuevo
-        if (img) tile.replaceChild(newImg, img);
-        else tile.appendChild(newImg);
-      } else {
-        // si solo cambió el número (sin reemplazo), aseguramos alt correcto
-        if (img && img.alt !== `pieza ${tileNum}`) img.alt = `pieza ${tileNum}`;
+        if (img) tile.replaceChild(newImg, img); else tile.appendChild(newImg);
+        tile.classList.remove('empty');
+      } else if (tileNum === 0) {
+        if (img) tile.removeChild(img);
+        tile.classList.add('empty');
       }
     }
   }
   updateHUD();
 }
 
+// ---- HUD y tiempo ----
 function updateHUD() {
   if (movesEl) movesEl.textContent = moves;
   if (timeEl) timeEl.textContent = formatTime(seconds);
@@ -127,25 +130,26 @@ function formatTime(s) {
   return `${mm}:${ss}`;
 }
 
+// ---- Movimiento solo hacia espacio vacío ----
 function onTileClicked(pos) {
-  if (selectedIndex === null) {
+  const emptyIndex = tileOrder.indexOf(0);
+  const r = Math.floor(emptyIndex / COLS);
+  const c = emptyIndex % COLS;
+  const clickedR = Math.floor(pos / COLS);
+  const clickedC = pos % COLS;
+
+  if (Math.abs(r - clickedR) + Math.abs(c - clickedC) === 1) {
+    swapIndices(pos, emptyIndex);
+    moves++;
+    startTimerIfNeeded();
+    renderPartialSwap(pos, emptyIndex);
+    checkAndMarkAfterSwap([pos, emptyIndex]);
+    checkSolved();
+    selectedIndex = null;
+  } else {
     selectedIndex = pos;
     renderBoard();
-    return;
   }
-  if (selectedIndex === pos) {
-    selectedIndex = null;
-    renderBoard();
-    return;
-  }
-  swapIndices(selectedIndex, pos);
-  moves++;
-  startTimerIfNeeded();
-  // actualizamos solo los dos índices intercambiados para evitar re-render global
-  renderPartialSwap(selectedIndex, pos);
-  checkAndMarkAfterSwap([selectedIndex, pos]);
-  checkSolved();
-  selectedIndex = null;
 }
 
 function swapIndices(a,b) {
@@ -153,41 +157,42 @@ function swapIndices(a,b) {
 }
 
 function renderPartialSwap(a, b) {
-  // actualiza los dos nodos afectados
-  [a, b].forEach(i => {
+  [a,b].forEach(i => {
     const tileNum = tileOrder[i];
     const tile = boardEl.children[i];
     if (!tile) return;
     tile.dataset.tile = tileNum;
+
     const img = tile.querySelector('img');
-    if (!img || img.alt !== `pieza ${tileNum}`) {
+    if (tileNum !== 0 && (!img || img.alt !== `pieza ${tileNum}`)) {
       const newImg = document.createElement('img');
       newImg.alt = `pieza ${tileNum}`;
       setImgSrcWithFallback(newImg, tileNum);
-      if (img) tile.replaceChild(newImg, img);
-      else tile.appendChild(newImg);
+      if (img) tile.replaceChild(newImg, img); else tile.appendChild(newImg);
+      tile.classList.remove('empty');
+    } else if (tileNum === 0) {
+      if (img) tile.removeChild(img);
+      tile.classList.add('empty');
     }
-    // classes
+
     tile.classList.remove('selected','correct','new-correct');
-    if (tileNum === solvedOrder[i]) tile.classList.add('correct');
+    if (tileNum === solvedOrder[i] && tileNum !== 0) tile.classList.add('correct');
   });
   updateHUD();
 }
 
 function checkAndMarkAfterSwap(indices = null) {
-  // si no pasan indices, revisa todo (menos eficiente)
   const start = (indices && indices.length) ? indices : Array.from({length:N}, (_,i)=>i);
   for (let i of start) {
-    const isCorrectNow = tileOrder[i] === solvedOrder[i];
+    const isCorrectNow = tileOrder[i] === solvedOrder[i] && tileOrder[i] !== 0;
     if (isCorrectNow && !prevCorrect.has(i)) {
       prevCorrect.add(i);
       const node = boardEl.children[i];
       if (node) {
-        node.classList.add('correct');
-        node.classList.add('new-correct');
-        setTimeout(() => node.classList.remove('new-correct'), 900);
+        node.classList.add('correct','new-correct');
+        setTimeout(()=> node.classList.remove('new-correct'), 900);
       }
-      playTone(880, 0.08);
+      playTone(880,0.08);
     } else if (!isCorrectNow && prevCorrect.has(i)) {
       prevCorrect.delete(i);
       const node = boardEl.children[i];
@@ -196,32 +201,31 @@ function checkAndMarkAfterSwap(indices = null) {
   }
 }
 
+// ---- Teclado: mover solo hacia espacio vacío ----
 window.addEventListener('keydown', (e) => {
   if (!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
   e.preventDefault();
-  if (selectedIndex === null) {
-    selectedIndex = 0;
-    renderBoard();
-    return;
-  }
-  const r = Math.floor(selectedIndex / COLS);
-  const c = selectedIndex % COLS;
+  const emptyIndex = tileOrder.indexOf(0);
+  const r = Math.floor(emptyIndex / COLS);
+  const c = emptyIndex % COLS;
   let target = null;
-  if (e.key === 'ArrowUp' && r > 0) target = selectedIndex - COLS;
-  if (e.key === 'ArrowDown' && r < ROWS - 1) target = selectedIndex + COLS;
-  if (e.key === 'ArrowLeft' && c > 0) target = selectedIndex - 1;
-  if (e.key === 'ArrowRight' && c < COLS - 1) target = selectedIndex + 1;
+
+  if (e.key === 'ArrowUp' && r < ROWS - 1) target = emptyIndex + COLS;
+  if (e.key === 'ArrowDown' && r > 0) target = emptyIndex - COLS;
+  if (e.key === 'ArrowLeft' && c < COLS - 1) target = emptyIndex + 1;
+  if (e.key === 'ArrowRight' && c > 0) target = emptyIndex - 1;
+
   if (target !== null) {
-    swapIndices(selectedIndex, target);
+    swapIndices(emptyIndex, target);
     moves++;
     startTimerIfNeeded();
-    renderPartialSwap(selectedIndex, target);
-    checkAndMarkAfterSwap([selectedIndex, target]);
+    renderPartialSwap(emptyIndex, target);
+    checkAndMarkAfterSwap([emptyIndex, target]);
     checkSolved();
-    selectedIndex = target;
   }
 });
 
+// ---- Mezclar piezas ----
 function shuffle(times = 1) {
   if (timer) { clearInterval(timer); timer = null; }
   tileOrder = [...solvedOrder];
@@ -240,11 +244,11 @@ function shuffle(times = 1) {
   moves = 0;
   seconds = 0;
   updateHUD();
-  // render inicial completo para establecer DOM
   renderBoard(true);
   timer = setInterval(()=> { seconds++; updateHUD(); }, 1000);
 }
 
+// ---- Reset tablero ----
 function resetBoard() {
   if (timer) { clearInterval(timer); timer = null; }
   prevCorrect.clear();
@@ -256,14 +260,12 @@ function resetBoard() {
   renderBoard(true);
 }
 
+// ---- Verificar resolución ----
 function checkSolved() {
-  const ok = tileOrder.every((v, i) => v === i + 1);
-  if (!ok) return false;
+  for (let i = 0; i < N-1; i++) if (tileOrder[i] !== i+1) return false;
+  if (tileOrder[N-1] !== 0) return false;
 
-  if (timer) { 
-    clearInterval(timer); 
-    timer = null; 
-  }
+  if (timer) { clearInterval(timer); timer = null; }
   setTimeout(() => {
     playTone(660, 0.2);
     setTimeout(()=> playTone(880, 0.15), 120);
@@ -272,12 +274,11 @@ function checkSolved() {
   return true;
 }
 
-
 function startTimerIfNeeded() {
   if (!timer) timer = setInterval(()=> { seconds++; updateHUD(); }, 1000);
 }
 
-// UI buttons
+// ---- Botones UI ----
 const btnShuffle = document.getElementById('shuffle');
 const btnReset = document.getElementById('reset');
 const btnShow = document.getElementById('show');
@@ -287,6 +288,6 @@ if (btnReset) btnReset.addEventListener('click', ()=> resetBoard());
 if (btnShow && overlay) btnShow.addEventListener('click', ()=> overlay.classList.remove('hidden'));
 if (closeOverlayBtn) closeOverlayBtn.addEventListener('click', ()=> overlay.classList.add('hidden'));
 
-// INIT
+// ---- INIT ----
 makeSolvedOrder();
 renderBoard(true);
